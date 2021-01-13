@@ -14,91 +14,6 @@ from keras.engine.saving import load_model
 
 from gym_connect_four.envs.render import render_board
 
-
-class Player(ABC):
-    """ Class used for evaluating the game """
-
-    def __init__(self, env: 'ConnectFourEnv', name='Player'):
-        self.name = name
-        self.env = env
-
-    @abstractmethod
-    def get_next_action(self, state: np.ndarray) -> int:
-        pass
-
-    def learn(self, state, action: int, state_next, reward: int, done: bool) -> None:
-        pass
-
-    def save_model(self, model_prefix: str = None):
-        raise NotImplementedError()
-
-    def load_model(self, model_prefix: str = None):
-        raise NotImplementedError()
-
-    def reset(self, episode: int = 0, side: int = 1) -> None:
-        """
-        Allows a player class to reset it's state before each round
-
-            Parameters
-            ----------
-            episode : which episode we have reached
-            side : 1 if the player is starting or -1 if the player is second
-        """
-        pass
-
-
-class RandomPlayer(Player):
-    def __init__(self, env: 'ConnectFourEnv', name='RandomPlayer', seed: Optional[Hashable] = None):
-        super().__init__(env, name)
-        self._seed = seed
-        # For reproducibility of the random
-        prev_state = random.getstate()
-        random.seed(self._seed)
-        self._state = random.getstate()
-        random.setstate(prev_state)
-
-    def get_next_action(self, state: np.ndarray) -> int:
-        available_moves = self.env.available_moves()
-        if not available_moves:
-            raise ValueError('Unable to determine a valid move! Maybe invoke at the wrong time?')
-
-        # Next operations are needed for reproducibility of the RandomPlayer when inited with seed
-        prev_state = random.getstate()
-        random.setstate(self._state)
-        action = random.choice(list(available_moves))
-        self._state = random.getstate()
-        random.setstate(prev_state)
-        return action
-
-    def reset(self, episode: int = 0, side: int = 1) -> None:
-        # For reproducibility of the random
-        random.seed(self._seed)
-        self._state = random.getstate()
-
-    def save_model(self, model_prefix: str = None):
-        pass
-
-
-class SavedPlayer(Player):
-    def __init__(self, env, name='SavedPlayer', model_prefix=None):
-        super(SavedPlayer, self).__init__(env, name)
-
-        if model_prefix is None:
-            model_prefix = self.name
-
-        self.observation_space = env.observation_space.shape
-        self.action_space = env.action_space.n
-
-        self.model = load_model(f"{model_prefix}.h5")
-
-    def get_next_action(self, state: np.ndarray) -> int:
-        state = np.reshape(state, [1] + list(self.observation_space))
-        q_values = self.model.predict(state)[0]
-        vs = [(i, q_values[i]) for i in self.env.available_moves()]
-        act = max(vs, key=itemgetter(1))
-        return act[0]
-
-
 @unique
 class ResultType(Enum):
     NONE = None
@@ -184,45 +99,8 @@ class ConnectFourEnv(gym.Env):
         self.__window_height = window_height
         self.__rendered_board = self._update_board_render()
 
-    def run(self, player1: Player, player2: Player, board: Optional[np.ndarray] = None, render=False) -> ResultType:
-        player1.reset()
-        player2.reset()
-        self.reset(board)
-
-        cp = lambda: self.__current_player
-
-        def change_player():
-            self.__current_player *= -1
-            return player1 if cp() == 1 else player2
-
-        state_hist = deque([self.__board.copy()], maxlen=4)
-
-        act = player1.get_next_action(self.__board * 1)
-        act_hist = deque([act], maxlen=2)
-        step_result = self._step(act)
-        state_hist.append(self.__board.copy())
-        player = change_player()
-        done = False
-        while not done:
-            if render:
-                self.render()
-            act_hist.append(player.get_next_action(self.__board * cp()))
-            step_result = self._step(act_hist[-1])
-            state_hist.append(self.__board.copy())
-
-            player = change_player()
-
-            reward = step_result.get_reward(cp())
-            done = step_result.is_done()
-            player.learn(state=state_hist[-3] * cp(), action=act_hist[-2], state_next=state_hist[-1] * cp(), reward=reward, done=done)
-
-        player = change_player()
-        reward = step_result.get_reward(cp())
-        player.learn(state_hist[-2] * cp(), act_hist[-1], state_hist[-1] * cp(), reward, done)
-        if render:
-            self.render()
-
-        return step_result.res_type
+    def change_player(self):
+        self.__current_player *= -1
 
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, dict]:
         step_result = self._step(action)
