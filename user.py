@@ -2,16 +2,17 @@ import os
 import requests
 
 STIL_ID = ["da20example-s"]
-ASSIGNMENT = 1
-ANSWER = "hej"
+MOVE = 3
 API_KEY = "nyckel"
 
 res = requests.post("http://localhost:8000/submit",
                     data={
                         "stil_id": STIL_ID,
-                        "assignment": ASSIGNMENT,
-                        "answer": ANSWER,
+                        "move": MOVE,
                         "api_key": API_KEY,
                     })
 
+print(res)
 print(res.json())
+
+print(res.json()['status'])

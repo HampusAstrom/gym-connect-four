@@ -3,7 +3,9 @@ import random
 import numpy as np
 from gym_connect_four import ConnectFourEnv
 
-def play_move(env, state=None, action=-1):
+env: ConnectFourEnv = gym.make("ConnectFour-v0")
+
+def play_move(state=None, action=-1):
    env.reset(board=state)
    result = 0 # 0 while not done, loss = -1, win = +1, draw = +0.5, error = -10
    DRAW = 0.5
