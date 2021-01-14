@@ -2,7 +2,7 @@ import os
 import requests
 
 STIL_ID = ["da20example-s"]
-MOVE = 3
+MOVE = 6
 API_KEY = "nyckel"
 
 res = requests.post("http://localhost:8000/submit",

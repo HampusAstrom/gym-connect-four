@@ -77,9 +77,11 @@ async def submit(stil_id: List[str] = Form(..., max_length=50, regex="^[\w\d_-]*
     state = None
     stgame = db.query(StudentGame).filter(StudentGame.stil_id == stil_id).first()
     if stgame is not None:
-        if stgame.running:
+        if stgame.running: # If a game is running, load it
             jstate = stgame.state
             state = np.array(json.loads(jstate))
+        else: # If not, we are staring a new game
+            stgame.running = True
     else:
         # make new StudentGame entry if none exists
         stgame = StudentGame()
