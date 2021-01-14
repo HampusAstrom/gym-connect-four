@@ -106,3 +106,6 @@ venv.bak/
 # Editors
 .idea
 .vscode
+
+# config local versions
+.config.py
