@@ -9,7 +9,7 @@ import time
 import yaml
 
 from fastapi import FastAPI, UploadFile, HTTPException, Form, File, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Json
 from enum import Enum
 
 import models
@@ -21,17 +21,20 @@ import numpy as np
 
 import utils
 import backend
+from threading import Lock
+
+lock = Lock()
 
 models.Base.metadata.create_all(bind=engine)
 
 class Status(BaseModel):
     msg: Optional[str]
-    status: str
+    status: bool
     signature: Optional[str]
     submission_id: Optional[uuid.UUID]
     result: Optional[float]
     botmove: Optional[int]
-    state: Optional[list]
+    state: Optional[List[List[int]]]
 
 def get_db():
     try:
@@ -59,7 +62,7 @@ async def submit(stil_id: List[str] = Form(..., max_length=50, regex="^[\w\d_-]*
 
     print(f"Receiving move from: {stil_id}")
     if api_key != API_KEY:
-        return Status(status='error', msg='Incorrect API key.')
+        return Status(status=False, msg='Incorrect API key.')
 
     # Concatenate stil ids
     stil_id = '+'.join(sorted(stil_id))
@@ -75,46 +78,54 @@ async def submit(stil_id: List[str] = Form(..., max_length=50, regex="^[\w\d_-]*
 
     # check if game already exists, and load the state for use with action
     state = None
-    stgame = db.query(StudentGame).filter(StudentGame.stil_id == stil_id).first()
-    if stgame is not None:
-        if stgame.running: # If a game is running, load it
-            jstate = stgame.state
-            state = np.array(json.loads(jstate))
-        else: # If not, we are staring a new game
-            stgame.running = True
-    else:
-        # make new StudentGame entry if none exists
-        stgame = StudentGame()
-        stgame.stil_id = stil_id
-        stgame.running = True
-        stgame.state = None
-        stgame.played = 0
-        stgame.won = 0
-        stgame.streak = 0
-        stgame.total_reward = 0
-
-
-    # make move or start new game, state=None will start a new game
-    state, botaction, result, done = backend.play_move(state=state, action=move)
-
-    # save state in database
-    jstate=json.dumps(state.tolist())
-    stgame.state = jstate
-
-    # If game is over update statistics and reset stuff in db
-    if done:
-        stgame.running = False
-        stgame.state = None
-        stgame.played = stgame.played + 1
-        if result == 1:
-            stgame.won = stgame.won + 1
-            stgame.streak = stgame.streak + 1
+    with lock:
+        stgame = db.query(StudentGame).filter(StudentGame.stil_id == stil_id).first()
+        if stgame is not None:
+            if stgame.running: # If a game is running, load it
+                jstate = stgame.state
+                state = np.array(json.loads(jstate))
+            else: # If not, we are staring a new game
+                stgame.running = True
         else:
+            # make new StudentGame entry if none exists
+            stgame = StudentGame()
+            stgame.stil_id = stil_id
+            stgame.running = True
+            stgame.state = None
+            stgame.played = 0
+            stgame.won = 0
             stgame.streak = 0
-        stgame.total_reward = stgame.total_reward + result
+            stgame.total_reward = 0
 
 
-    db.add(stgame)
-    db.commit()
+        # make move or start new game, state=None will start a new game
+        state, botaction, result, done = backend.play_move(state=state, action=move)
+        if result == -10:
+            return Status(status=False, msg='Impossible move.')
 
-    return Status(status='correct', signature=signed_ok, submission_id=uid, result=result, botmove=botaction)
+        # save state in database
+        jstate=json.dumps(state.tolist())
+        stgame.state = jstate
+
+        # If game is over update statistics and reset stuff in db
+        if done:
+            stgame.running = False
+            stgame.state = None
+            stgame.played = stgame.played + 1
+            if result == 1:
+                stgame.won = stgame.won + 1
+                stgame.streak = stgame.streak + 1
+            else:
+                stgame.streak = 0
+            stgame.total_reward = stgame.total_reward + result
+
+
+        db.add(stgame)
+        db.commit()
+
+    return Status(status=True,
+                  signature=signed_ok,
+                  submission_id=uid,
+                  result=result,
+                  botmove=botaction,
+                  state=state.tolist())
