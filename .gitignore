@@ -108,4 +108,4 @@ venv.bak/
 .vscode
 
 # config local versions
-.config.py
+config.py
