@@ -10,7 +10,6 @@ import numpy as np
 import pygame
 from gym import error
 from gym import spaces
-from keras.engine.saving import load_model
 
 from gym_connect_four.envs.render import render_board
 

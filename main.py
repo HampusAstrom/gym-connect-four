@@ -30,11 +30,19 @@ models.Base.metadata.create_all(bind=engine)
 class Status(BaseModel):
     msg: Optional[str]
     status: bool
-    signature: Optional[str]
-    submission_id: Optional[uuid.UUID]
     result: Optional[float]
     botmove: Optional[int]
     state: Optional[List[List[int]]]
+
+class Student(BaseModel):
+    msg: Optional[str]
+    status: bool
+    stil_id: Optional[str]
+    played: Optional[int]
+    won: Optional[int]
+    lost: Optional[int]
+    streak: Optional[int]
+    total_reward: Optional[float]
 
 def get_db():
     try:
@@ -44,15 +52,43 @@ def get_db():
         db.close()
 
 app = FastAPI()
-from config import API_KEY, SECRET_KEY
+from config import API_KEY, TEACHER_KEY
 
 @app.get("/")
 async def root():
     return "Artificial Intelligence - EDAP01 / TFRP20 automatic submission service."
 
+@app.post("/student")
+async def student(stil_id: str = Form(..., max_length=50, regex="^[\w\d_-]*$"),
+                  teacher_key: str = Form(...),
+                  db: Session = Depends(get_db))->Student:
+    """
+    Get ?all? database entried for a given stil_id
+    """
+    print(f"Receiving check on: {stil_id}")
+    if teacher_key != TEACHER_KEY:
+        return Student(status=False, msg='Incorrect teacher key.')
+    #entries = db.query(StudentGame).filter(StudentGame.stil_id.contains(stil_id))
+    entries = db.query(StudentGame).filter(StudentGame.stil_id.contains(stil_id)).all()
+    print(entries)
+    return Student(status=False)
 
-@app.post("/submit", response_model=Status)
-async def submit(stil_id: List[str] = Form(..., max_length=50, regex="^[\w\d_-]*$"),
+def game_done(stgame, result):
+    stgame.running = False
+    stgame.state = None
+    stgame.played = stgame.played + 1
+    if result == 1:
+        stgame.won = stgame.won + 1
+        stgame.streak = stgame.streak + 1
+    elif result == 0.5:
+        stgame.streak = stgame.streak + 1
+    elif result < 0:
+        stgame.lost = stgame.lost + 1
+        stgame.streak = 0
+    stgame.total_reward = stgame.total_reward + result
+
+@app.post("/move", response_model=Status)
+async def move(stil_id: List[str] = Form(..., max_length=50, regex="^[\w\d_-]*$"),
                  move: int = Form(..., ge=-1, le=6), # -1 encodes a new game request
                  api_key: str = Form(...),
                  db: Session = Depends(get_db))->Status:
@@ -66,15 +102,6 @@ async def submit(stil_id: List[str] = Form(..., max_length=50, regex="^[\w\d_-]*
 
     # Concatenate stil ids
     stil_id = '+'.join(sorted(stil_id))
-
-    # Submission ID
-    uid = uuid.uuid4()
-
-    # Sign user submission
-    msg = bytes(str(uid) + stil_id, 'utf-8')
-
-    # Create HMAC with secret key
-    signed_ok = hmac.new(SECRET_KEY, msg=msg, digestmod='sha512').hexdigest()
 
     # check if game already exists, and load the state for use with action
     state = None
@@ -94,14 +121,19 @@ async def submit(stil_id: List[str] = Form(..., max_length=50, regex="^[\w\d_-]*
             stgame.state = None
             stgame.played = 0
             stgame.won = 0
+            stgame.lost = 0
             stgame.streak = 0
             stgame.total_reward = 0
 
+        if move == -1:
+            if stgame.running:
+                game_done(stgame, -1)
+                db.add(stgame)
+                db.commit()
+            return Status(status=True, msg='New game initiated, you start. Make your move')
 
         # make move or start new game, state=None will start a new game
         state, botaction, result, done = backend.play_move(state=state, action=move)
-        if result == -10:
-            return Status(status=False, msg='Impossible move.')
 
         # save state in database
         jstate=json.dumps(state.tolist())
@@ -109,23 +141,16 @@ async def submit(stil_id: List[str] = Form(..., max_length=50, regex="^[\w\d_-]*
 
         # If game is over update statistics and reset stuff in db
         if done:
-            stgame.running = False
-            stgame.state = None
-            stgame.played = stgame.played + 1
-            if result == 1:
-                stgame.won = stgame.won + 1
-                stgame.streak = stgame.streak + 1
-            else:
-                stgame.streak = 0
-            stgame.total_reward = stgame.total_reward + result
-
+            game_done(stgame, result)
 
         db.add(stgame)
         db.commit()
 
-    return Status(status=True,
-                  signature=signed_ok,
-                  submission_id=uid,
-                  result=result,
-                  botmove=botaction,
-                  state=state.tolist())
+        # return with error and penalize average results if faulty move it played
+        if result == -10:
+            return Status(status=False, msg='Impossible move.')
+
+        return Status(status=True,
+                      result=result,
+                      botmove=botaction,
+                      state=state.tolist())

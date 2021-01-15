@@ -24,7 +24,6 @@ def play_move(state=None, action=-1):
       return state, -1, result, True
    state, reward, done, _ = env.step(action)
    print(state)
-   # print(done)
    if done:
       return state, -1, reward, done
 
@@ -36,11 +35,11 @@ def play_move(state=None, action=-1):
    if not avmoves:
       result = DRAW
       return state, -1, result, True
+   # Insert alternative agent here if needed, currently random
    botaction = random.choice(list(avmoves))
+
    state, reward, done, _ = env.step(botaction)
    print(state)
-   # print(botaction)
-   # print(done)
    print()
 
    # change board format to the other player

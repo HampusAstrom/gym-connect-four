@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, JSON, Float
+from sqlalchemy import Boolean, Column, Integer, String, JSON, Float
 
 from database import Base
 
@@ -12,5 +12,6 @@ class StudentGame(Base):
     state = Column('data', JSON)
     played = Column(Integer)
     won = Column(Integer)
+    lost = Column(Integer)
     streak = Column(Integer)
     total_reward = Column(Float)
